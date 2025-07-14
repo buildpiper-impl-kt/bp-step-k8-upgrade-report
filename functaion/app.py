@@ -7,22 +7,23 @@ import sys
 import shutil
 
 # Get defaults from environment variables or use hardcoded defaults
-#DEFAULT_INPUT_DIR = os.getenv('INPUT_DIR', ".")
 DEFAULT_INPUT_DIR = os.path.join(
-    os.getenv('WORKSPACE', "."), 
-    os.getenv('CODEBASE_DIR', ""), 
+    os.getenv('WORKSPACE', "."),
+    os.getenv('CODEBASE_DIR', ""),
     "logs"
 )
 DEFAULT_SLEEP_DURATION = int(os.getenv('SLEEP_DURATION', "5"))
-DEFAULT_OUTPUT_DIR = os.getenv('OUTPUT_DIR', "reports")
+DEFAULT_OUTPUT_DIR = os.path.join(
+    os.getenv('WORKSPACE', "."),
+    os.getenv('CODEBASE_DIR', ""),
+    "reports"
+)
 
 def get_arguments():
     """Get command line arguments, overriding env vars if provided"""
-    # Start with environment variable defaults
     input_dir = DEFAULT_INPUT_DIR
     sleep_duration = DEFAULT_SLEEP_DURATION
-    
-    # Override with command line arguments if provided
+
     if len(sys.argv) > 1:
         input_dir = sys.argv[1]
     if len(sys.argv) > 2:
@@ -31,7 +32,7 @@ def get_arguments():
         except ValueError:
             print(f"Warning: Invalid SLEEP_DURATION, using default {DEFAULT_SLEEP_DURATION}")
             sleep_duration = DEFAULT_SLEEP_DURATION
-    
+
     return input_dir, sleep_duration
 
 def read_file_content(file_path):
@@ -49,7 +50,7 @@ def read_file_content(file_path):
 def parse_cluster_upgrade(file_content):
     """Parse the EKS cluster upgrade information"""
     result = {}
-    
+
     cluster_match = re.search(r"EKS Cluster Upgrade Summary - (\w+) \((\w+-\w+-\d+)\)", file_content)
     if cluster_match:
         result['name'] = cluster_match.group(1)
@@ -57,7 +58,7 @@ def parse_cluster_upgrade(file_content):
     else:
         result['name'] = "Unknown"
         result['region'] = "Unknown"
-    
+
     version_match = re.search(r"Current version: ([\d.]+)\n.*upgrade to version ([\d.]+)", file_content)
     if version_match:
         result['current_version'] = version_match.group(1)
@@ -65,7 +66,7 @@ def parse_cluster_upgrade(file_content):
     else:
         result['current_version'] = "Unknown"
         result['target_version'] = "Unknown"
-    
+
     status_match = re.search(r"RESULT: (\w+),([\d.]+),([\d.]+),(\w+)", file_content)
     if status_match:
         result['cluster_name'] = status_match.group(1)
@@ -75,26 +76,26 @@ def parse_cluster_upgrade(file_content):
     else:
         result['cluster_name'] = result.get('name', 'Unknown')
         result['status'] = "Unknown"
-    
+
     logs = []
     for line in file_content.split('\n'):
         if line.strip() and not line.startswith('RESULT:') and not line.startswith('Cluster Name'):
             logs.append(line.strip())
     result['logs'] = logs
-    
+
     timestamp_match = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", file_content)
     if timestamp_match:
         result['timestamp'] = timestamp_match.group(1)
     else:
         result['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     return result
 
 def parse_nodegroup_upgrade(file_content):
     """Parse nodegroup upgrade information"""
     nodegroups = []
     logs = []
-    
+
     result_matches = re.finditer(r"RESULT: ([\w-]+),([\d.]+),([\d.]+),(\w+)", file_content)
     for match in result_matches:
         nodegroups.append({
@@ -104,7 +105,7 @@ def parse_nodegroup_upgrade(file_content):
             'status': match.group(4),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
-    
+
     if not nodegroups:
         ng_match = re.search(r"Nodegroup '([\w-]+)' version is ([\d.]+). Target is ([\d.]+)", file_content)
         if ng_match:
@@ -115,18 +116,18 @@ def parse_nodegroup_upgrade(file_content):
                 'status': "Unknown",
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
-    
+
     for line in file_content.split('\n'):
         if line.strip() and not line.startswith('RESULT:'):
             logs.append(line.strip())
-    
+
     return nodegroups, logs
 
 def parse_addon_upgrade(file_content):
     """Parse addon upgrade information"""
     addons = []
     errors = []
-    
+
     addon_matches = re.finditer(r"([\w-]+),([\w.-]+),([\w.-]+),([\w-]+)", file_content)
     for match in addon_matches:
         addons.append({
@@ -135,16 +136,16 @@ def parse_addon_upgrade(file_content):
             'target_version': match.group(3),
             'status': match.group(4)
         })
-    
+
     error_matches = re.finditer(r"ERROR upgrading addon '([\w-]+)'.*?\n(.*?)(?=\n\S)", file_content, re.DOTALL)
     for match in error_matches:
         errors.append(f"{match.group(1)}: {match.group(2).strip()}")
-    
+
     if not errors:
         error_matches = re.finditer(r"Error: (.*)", file_content)
         for match in error_matches:
             errors.append(match.group(1))
-    
+
     return addons, errors
 
 def parse_api_check(file_content):
@@ -154,7 +155,7 @@ def parse_api_check(file_content):
         'summary': 'No information found',
         'report_file': 'Not available'
     }
-    
+
     summary_match = re.search(r"summary=(.*)", file_content)
     if summary_match:
         result['summary'] = summary_match.group(1)
@@ -162,54 +163,51 @@ def parse_api_check(file_content):
         summary_match = re.search(r"No deprecated APIs found", file_content)
         if summary_match:
             result['summary'] = "API Check: No deprecated APIs found."
-    
+
     report_match = re.search(r"Output saved to: ([\w.-]+)", file_content)
     if report_match:
         result['report_file'] = report_match.group(1)
-    
+
     for line in file_content.split('\n'):
         if line.strip() and not line.startswith('summary=') and not line.startswith('Report:'):
             result['logs'].append(line.strip())
-    
+
     return result
 
 def main():
     input_dir, sleep_duration = get_arguments()
-    
-    # Sleep for specified duration
+
     if sleep_duration > 0:
         print(f"Sleeping for {sleep_duration} seconds before generating report...")
         time.sleep(sleep_duration)
-    
+
     env = Environment(loader=FileSystemLoader('.'))
     template = env.get_template('templates/template.html')
-    
-    # Define input file paths
+
     input_files = {
         'cluster': os.path.join(input_dir, 'eks-cluster-summary.txt'),
         'nodegroup': os.path.join(input_dir, 'eks-node-group.log'),
         'addon': os.path.join(input_dir, 'addon-output.txt'),
         'api_check': os.path.join(input_dir, 'api_version_check_output.log')
     }
-    
-    # Read file contents
+
+    # Read and parse all files
     cluster_upgrade_content = read_file_content(input_files['cluster'])
     nodegroup_content = read_file_content(input_files['nodegroup'])
     addon_content = read_file_content(input_files['addon'])
     api_check_content = read_file_content(input_files['api_check'])
-    
-    # Parse contents
+
     control_plane = parse_cluster_upgrade(cluster_upgrade_content)
     nodegroups, nodegroup_logs = parse_nodegroup_upgrade(nodegroup_content)
     addons, addon_errors = parse_addon_upgrade(addon_content)
     api_check = parse_api_check(api_check_content)
-    
+
     cluster_info = {}
     if 'name' in control_plane:
         cluster_info['name'] = control_plane['name']
         if 'region' in control_plane:
             cluster_info['region'] = control_plane['region']
-    
+
     # Render the template
     html_output = template.render(
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -221,35 +219,16 @@ def main():
         addon_errors=addon_errors,
         api_check=api_check
     )
-    report_dir = os.path.join(
-        os.getenv('WORKSPACE', "."), 
-        os.getenv('CODEBASE_DIR', ""), 
-        "reports"
-        )
-    os.makedirs(report_dir, exist_ok=True)
 
-    report_filename = os.path.join(report_dir, "eks_upgrade_report.html")
-    
-    # report_filename = os.path.join(input_dir, "eks_upgrade_report.html")
-    # with open(report_filename, 'w') as f:
-    #     f.write(html_output)
+    # Ensure output directory exists
+    os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
 
-    print(f"✅ Report generated at: {os.path.abspath(report_filename)}")
+    # Save the report
+    report_filename = os.path.join(DEFAULT_OUTPUT_DIR, "eks_upgrade_report.html")
+    with open(report_filename, 'w') as f:
+        f.write(html_output)
 
-    # Create output directory if it doesn't exist
-    # os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
-    
-    # # Save the output
-    # report_filename = os.path.join(DEFAULT_OUTPUT_DIR, "eks_upgrade_report.html")
-    # with open(report_filename, 'w') as f:
-    #     f.write(html_output)
-    
-    # print(f"Report generated successfully: {report_filename}")
-    # target_dir = "/bp/workspace/"
-    # os.makedirs(target_dir, exist_ok=True)
-    # shutil.copy(report_filename, target_dir)
-    # print(f"Location: {os.path.abspath(report_filename)}")
-    # print(f"Copied to: {os.path.abspath(os.path.join(target_dir, report_filename))}")
+    print(f"Report successfully generated at: {os.path.abspath(report_filename)}")
 
 if __name__ == "__main__":
     main()
