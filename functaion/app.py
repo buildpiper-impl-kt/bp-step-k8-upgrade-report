@@ -42,13 +42,16 @@ def read_file_content(file_path):
             return f.read()
     except FileNotFoundError:
         print(f"Warning: File {file_path} not found")
-        return ""
+        return None
     except Exception as e:
         print(f"Error reading file {file_path}: {str(e)}")
-        return ""
+        return None
 
 def parse_cluster_upgrade(file_content):
     """Parse the EKS cluster upgrade information"""
+    if not file_content:
+        return None
+        
     result = {}
 
     cluster_match = re.search(r"EKS Cluster Upgrade Summary - (\w+) \((\w+-\w+-\d+)\)", file_content)
@@ -93,6 +96,9 @@ def parse_cluster_upgrade(file_content):
 
 def parse_nodegroup_upgrade(file_content):
     """Parse nodegroup upgrade information"""
+    if not file_content:
+        return [], []
+        
     nodegroups = []
     logs = []
 
@@ -125,6 +131,9 @@ def parse_nodegroup_upgrade(file_content):
 
 def parse_addon_upgrade(file_content):
     """Parse addon upgrade information"""
+    if not file_content:
+        return [], []
+        
     addons = []
     errors = []
 
@@ -150,6 +159,9 @@ def parse_addon_upgrade(file_content):
 
 def parse_api_check(file_content):
     """Parse API version check information"""
+    if not file_content:
+        return None
+        
     result = {
         'logs': [],
         'summary': 'No information found',
@@ -191,32 +203,68 @@ def main():
         'api_check': os.path.join(input_dir, 'api_version_check_output.log')
     }
 
-    # Read and parse all files
+    # Read all files and track which ones were found
+    files_found = False
+    file_status = {}
+    
     cluster_upgrade_content = read_file_content(input_files['cluster'])
     nodegroup_content = read_file_content(input_files['nodegroup'])
     addon_content = read_file_content(input_files['addon'])
     api_check_content = read_file_content(input_files['api_check'])
 
-    control_plane = parse_cluster_upgrade(cluster_upgrade_content)
-    nodegroups, nodegroup_logs = parse_nodegroup_upgrade(nodegroup_content)
-    addons, addon_errors = parse_addon_upgrade(addon_content)
-    api_check = parse_api_check(api_check_content)
+    # Parse files only if they were found
+    control_plane = parse_cluster_upgrade(cluster_upgrade_content) if cluster_upgrade_content is not None else None
+    nodegroups, nodegroup_logs = parse_nodegroup_upgrade(nodegroup_content) if nodegroup_content is not None else ([], [])
+    addons, addon_errors = parse_addon_upgrade(addon_content) if addon_content is not None else ([], [])
+    api_check = parse_api_check(api_check_content) if api_check_content is not None else None
 
+    # Check if we have at least one file with data
+    has_data = False
+    if control_plane is not None:
+        has_data = True
+    if nodegroups:
+        has_data = True
+    if addons:
+        has_data = True
+    if api_check is not None:
+        has_data = True
+
+    if not has_data:
+        print("ERROR: No input files found or all files were empty. Report not generated.")
+        return
+
+    # Print warnings for missing files
+    if cluster_upgrade_content is None:
+        print(f"Warning: Missing cluster upgrade file: {input_files['cluster']}")
+    if nodegroup_content is None:
+        print(f"Warning: Missing nodegroup upgrade file: {input_files['nodegroup']}")
+    if addon_content is None:
+        print(f"Warning: Missing addon upgrade file: {input_files['addon']}")
+    if api_check_content is None:
+        print(f"Warning: Missing API check file: {input_files['api_check']}")
+
+    # Prepare cluster info from available data
     cluster_info = {}
-    if 'name' in control_plane:
+    if control_plane and 'name' in control_plane:
         cluster_info['name'] = control_plane['name']
         if 'region' in control_plane:
             cluster_info['region'] = control_plane['region']
+    elif nodegroups:
+        # Try to get cluster name from nodegroup logs if available
+        for line in (nodegroup_logs or []):
+            if "Cluster:" in line:
+                cluster_info['name'] = line.split("Cluster:")[1].strip()
+                break
 
-    # Render the template
+    # Render the template with available data
     html_output = template.render(
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         cluster_info=cluster_info,
         control_plane=control_plane,
-        nodegroups=nodegroups,
-        nodegroup_logs=nodegroup_logs,
-        addons=addons,
-        addon_errors=addon_errors,
+        nodegroups=nodegroups or [],
+        nodegroup_logs=nodegroup_logs or [],
+        addons=addons or [],
+        addon_errors=addon_errors or [],
         api_check=api_check
     )
 
@@ -228,7 +276,7 @@ def main():
     with open(report_filename, 'w') as f:
         f.write(html_output)
 
-    print(f"Report successfully generated at: {os.path.abspath(report_filename)}")
+    print(f"Success: Report successfully generated at: {os.path.abspath(report_filename)}")
 
 if __name__ == "__main__":
     main()
