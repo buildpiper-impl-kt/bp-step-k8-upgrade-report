@@ -211,7 +211,7 @@ def main():
 
     # Fail job if ALL files are missing
     if len(missing_files) == len(required_files):
-        print("❌ Error: All required files are missing!")
+        print("Error: All required files are missing. Report not generated. ")
         print("Missing files:")
         for file_path in missing_files:
             print(f"  - {file_path}")
@@ -219,7 +219,7 @@ def main():
 
     # Show warnings for missing files (but continue)
     if missing_files:
-        print("⚠️  Warning: Some files are missing (proceeding with available data):")
+        print("Warning: Some files are missing (proceeding with available data):")
         for file_path in missing_files:
             print(f"  - {file_path}")
 
@@ -258,7 +258,7 @@ def main():
         )
         f.write(html)
 
-    print(f"✅ Report successfully generated at: {os.path.abspath(report_path)}")
+    print(f"Success: Report successfully generated at: {os.path.abspath(report_path)}")
 
 if __name__ == "__main__":
     main()
