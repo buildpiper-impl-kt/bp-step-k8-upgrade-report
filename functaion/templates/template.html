@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EKS Upgrade Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9; color: #333; }
+        .container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .header-banner { width: 100%; margin-bottom: 20px; position: relative; }
+        .header-image { 
+            width: 100%; 
+            height: 200px; 
+            object-fit: cover; 
+        }
+        .banner-text { 
+            position: absolute; 
+            bottom: 15px; 
+            left: 10px; 
+            color: white; 
+            background-color: rgba(0,0,0,0.6); 
+            padding: 10px 5px;
+            border-radius: 5px;
+        }
+        .custom-banner {
+            background-color: #1a73e8;
+            color: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 1.2em;
+        }
+        .warning-banner {
+            background-color: #ff9800;
+            color: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 1.2em;
+        }
+        .success-banner {
+            background-color: #4caf50;
+            color: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 1.2em;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 20px;
+            border: 2px solid #333;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            color: #333;
+        }
+        h1, h2 { color: #333; }
+        a { color: #1a73e8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        p { font-size: 14px; }
+        .success { color: green; }
+        .warning { color: orange; }
+        .error { color: red; }
+        .note { 
+            background-color: #fffde7; 
+            padding: 10px; 
+            border-left: 4px solid #ffd600; 
+            margin-bottom: 20px;
+        }
+        code { 
+            background-color: #f5f5f5; 
+            padding: 2px 4px; 
+            border-radius: 3px; 
+            font-family: monospace; 
+        }
+    </style>
+</head>
+<body>
+    <div class="header-banner">
+        <img src="https://blogs.halodoc.io/content/images/2020/10/pritam-1-2.png" alt="EKS Upgrade Header" class="header-image">
+        <div class="banner-text">
+            <h1>EKS Cluster Upgrade Report</h1>
+            <p>Comprehensive upgrade analysis and recommendations</p>
+        </div>
+    </div>
+
+    {# Check for various types of issues #}
+    {% set control_plane_issue = control_plane.status != 'Success' %}
+    {% set nodegroup_issue = nodegroups|selectattr('status', '!=', 'Upgraded')|list|length > 0 %}
+    {% set addon_critical_issue = addons|selectattr('status', '==', 'Incompatible')|list|length > 0 %}
+    {% set api_issue = 'No deprecated APIs found' not in api_check.summary %}
+
+    {# Determine which banner to show #}
+    {% if control_plane_issue or nodegroup_issue or addon_critical_issue or api_issue %}
+        <div class="warning-banner">
+            <strong>⚠️ Upgrade completed with issues:</strong>
+            <ul style="text-align: left; margin-top: 10px;">
+                {% if control_plane_issue %}
+                    <li>Control Plane upgrade failed.</li>
+                {% endif %}
+                {% if nodegroup_issue %}
+                    <li>One or more node groups did not upgrade successfully.</li>
+                {% endif %}
+                {% if addon_critical_issue %}
+                    <li>One or more add-ons are marked <strong style="color: #ff0000;">Incompatible</strong>.</li>
+                {% endif %}
+                {% if api_issue %}
+                    <li>Deprecated API versions found during compatibility check.</li>
+                {% endif %}
+            </ul>
+        </div>
+    {% else %}
+        <div class="success-banner">
+            ✅ Upgrade completed successfully with no critical issues.
+        </div>
+    {% endif %}
+
+    <h1>EKS Upgrade Report from {{ control_plane.current_version }} to {{ control_plane.target_version  }}</h1>
+    <p><strong>Generated:</strong> {{ timestamp }}</p>
+    <p><strong>Cluster Name:</strong> {{ cluster_info.name }}</p>
+    <p><strong>Region:</strong> {{ cluster_info.region }}</p>
+    <p><strong>Cluster Version:</strong> {{ control_plane.current_version }} → {{ control_plane.target_version  }}</p>
+    
+    <h2>Control Plane Upgrade</h2>
+    <table>
+        <tr><th>Current Version</th><th>Target Version</th><th>Status</th><th>Timestamp</th></tr>
+        <tr>
+            <td>{{ control_plane.current_version }}</td>
+            <td>{{ control_plane.target_version }}</td>
+            <td class="{% if control_plane.status == 'Success' %}success{% else %}error{% endif %}">
+                {{ control_plane.status }}
+            </td>
+            <td>{{ control_plane.timestamp }}</td>
+        </tr>
+    </table>
+
+    <h2>Node Groups</h2>
+    <table>
+        <tr><th>Node Group</th><th>Current Version</th><th>Target Version</th><th>Status</th></tr>
+        {% for nodegroup in nodegroups %}
+        <tr>
+            <td>{{ nodegroup.name }}</td>
+            <td>{{ nodegroup.current_version }}</td>
+            <td>{{ nodegroup.target_version }}</td>
+            <td class="{% if nodegroup.status == 'Upgraded' %}success{% elif nodegroup.status == 'Failed' %}error{% else %}warning{% endif %}">
+                {{ nodegroup.status }}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>Add-ons</h2>
+    <table>
+        <tr><th>Add-on Name</th><th>Current Version</th><th>Target Version</th><th>Status</th></tr>
+        {% for addon in addons %}
+        <tr>
+            <td>{{ addon.name }}</td>
+            <td>{{ addon.current_version }}</td>
+            <td>{{ addon.target_version }}</td>
+            <td class="{% if addon.status == 'Upgraded' %}success{% elif addon.status == 'Not-Upgraded' %}error{% elif addon.status == 'Will-Upgrade' %}warning{% elif addon.status == 'Incompatible' %}error{% endif %}">
+                {{ addon.status }}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>API Version Check</h2>
+    <p class="{% if api_check.summary == 'No deprecated APIs found.' %}success{% else %}error{% endif %}">
+        <strong>Result:</strong> {{ api_check.summary }}
+    </p>
+    <p><strong>Report File:</strong> {{ api_check.report_file }}</p>
+
+    <h2>Notes</h2>
+    <div class="note">
+        <ul>
+            {% set addon_names = addons|map(attribute='name')|list %}
+            {% if 'vpc-cni' in addon_names %}
+            <li><strong>vpc-cni:</strong> Requires IAM OIDC provider to be associated with the cluster. Run: <code>eksctl utils associate-iam-oidc-provider --region={{ cluster_info.region }} --cluster={{ cluster_info.name }}</code></li>
+            {% endif %}
+            {% if 'coredns' in addon_names and addons|selectattr('name', '==', 'coredns')|first.status == 'Incompatible' %}
+            <li><strong>coredns:</strong> Marked as incompatible - please check EKS add-on compatibility matrix for version {{ cluster_info.target_version }}.</li>
+            {% endif %}
+            {% if control_plane.status == 'Success' and nodegroups|selectattr('status', '==', 'Upgraded')|list == nodegroups|list %}
+            <li>Cluster upgrade completed successfully to version {{ cluster_info.target_version }}.</li>
+            {% endif %}
+        </ul>
+    </div>
+</body>
+</html>
